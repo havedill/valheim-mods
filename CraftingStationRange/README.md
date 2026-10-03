@@ -3,7 +3,12 @@ Unlimited range for crafting stations. Or configure a custom range.
 
 As a reference, the game default for the stations is 20.
 
-0 = unlimited
+- `-1` = leave vanilla range alone (do not modify)
+- `0` = unlimited
+- `> 0` = custom range
+
+Workbench / forge / stonecutter / artisan default to `0` (unlimited).
+Any other station discovered at runtime (cauldron, Forge of Potential, etc.) defaults to `-1` (vanilla).
 
 ## Installation
 1. Download and install [BepInEx Valheim](https://valheim.thunderstore.io/package/denikson/BepInExPack_Valheim/)
@@ -11,34 +16,33 @@ As a reference, the game default for the stations is 20.
 3. Launching the game will generate a config file at `<GameLocation>\BepInEx\config`
 
 ## Configuration
-`<GameLoacation>/BepInEx/config/net.mtnewton.craftingstationrange.cfg`
+`<GameLocation>/BepInEx/config/net.mtnewton.craftingstationrange.cfg`
 ```
 [CraftingStationRange]
 
-## Station range is set to this amount.
+## Station build range. -1 = vanilla (do not modify), 0 = unlimited, >0 = custom range.
 # Setting type: Single
 # Default value: 0
 $piece_workbench = 0
 
-## Station range is set to this amount.
-# Setting type: Single
-# Default value: 0
 $piece_forge = 0
-
-## Station range is set to this amount.
-# Setting type: Single
-# Default value: 0
 $piece_stonecutter = 0
-
-## Station range is set to this amount.
-# Setting type: Single
-# Default value: 0
 $piece_artisanstation = 0
+
+## Forge of Potential — leave at -1 unless you intentionally want a custom range.
+$piece_upgradestation = -1
 ```
+
 ## Known Issues
-- When set to unlimited range, a crafting station must still be loaded by the game. Walking far away from a station will casue it to unload.
+- When set to unlimited range, a crafting station must still be loaded by the game. Walking far away from a station will cause it to unload.
 
 ## Changelog
+- v1.0.4
+    - Fix Forge of Potential / other new stations being broken by auto-binding them to unlimited
+    - Stop destroying `m_areaMarker` (that broke station use)
+    - Use a large finite range instead of `float.MaxValue`
+    - Null-safe area marker updates
+    - New stations default to `-1` (vanilla) instead of `0` (unlimited)
 - v1.0.3
     - update readme - config path
 - v1.0.2

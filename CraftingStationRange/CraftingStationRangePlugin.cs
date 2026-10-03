@@ -4,6 +4,7 @@ using BepInEx.Logging;
 using HarmonyLib;
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace CraftingStationRange
 {
@@ -15,23 +16,31 @@ namespace CraftingStationRange
 
         const string NAME = "CraftingStationRange";
 
-        const string VERSION = "1.0.3";
+        const string VERSION = "1.0.4";
+
+        // Large finite range instead of float.MaxValue — MaxValue breaks distance checks.
+        const float UnlimitedRange = 100000f;
+
+        // Negative = leave the station's vanilla range alone.
+        const float VanillaRange = -1f;
 
         private static ConfigFile config;
 
         private static ManualLogSource logger;
 
-        private static List<KeyValuePair<string, float>> stationRanges = new List<KeyValuePair<string, float>>();
+        private static readonly Dictionary<string, ConfigEntry<float>> stationRanges =
+            new Dictionary<string, ConfigEntry<float>>();
 
         void Awake()
         {
             logger = Logger;
             config = Config;
 
-            BindStationRange("$piece_workbench");
-            BindStationRange("$piece_forge");
-            BindStationRange("$piece_stonecutter");
-            BindStationRange("$piece_artisanstation");
+            // Original stations default to unlimited (0), matching 1.0.3 behavior.
+            BindStationRange("$piece_workbench", 0f);
+            BindStationRange("$piece_forge", 0f);
+            BindStationRange("$piece_stonecutter", 0f);
+            BindStationRange("$piece_artisanstation", 0f);
 
             Harmony harmony = new Harmony(GUID);
             harmony.PatchAll();
@@ -41,53 +50,75 @@ namespace CraftingStationRange
 
         [HarmonyPostfix]
         [HarmonyPatch(typeof(CraftingStation), "Start")]
-        public static void LogStations(CraftingStation __instance)
+        public static void ApplyStationRange(CraftingStation __instance)
         {
             float stationRange = GetStationRange(__instance.m_name);
 
-            if (stationRange == 0)
+            // Unknown / newly added stations default to -1 (vanilla). Do not touch them.
+            // This is what broke Forge of Potential ($piece_upgradestation): it was
+            // auto-bound to 0, then had its area marker destroyed and range set to MaxValue.
+            if (stationRange < 0f)
             {
-                Destroy(__instance.m_areaMarker);
-                __instance.m_areaMarker = null;
-                __instance.m_rangeBuild = float.MaxValue;
+                logger.LogInfo(__instance.m_name + " left at vanilla range.");
+                return;
+            }
+
+            if (stationRange == 0f)
+            {
+                __instance.m_rangeBuild = UnlimitedRange;
+                UpdateAreaMarker(__instance, UnlimitedRange);
                 logger.LogInfo(__instance.m_name + " set to max range.");
                 return;
             }
 
             __instance.m_rangeBuild = stationRange;
-            __instance.m_areaMarker.GetComponent<CircleProjector>().m_radius = stationRange;
-            __instance.m_areaMarker.GetComponent<CircleProjector>().m_nrOfSegments = (int)Math.Ceiling(Math.Max(5f, 4f * stationRange));
+            UpdateAreaMarker(__instance, stationRange);
             logger.LogInfo(__instance.m_name + " set to " + stationRange + " range");
+        }
 
+        static void UpdateAreaMarker(CraftingStation station, float range)
+        {
+            // Never Destroy(m_areaMarker). Newer stations (Forge of Potential) need it,
+            // and nulling it leads to "can't use the station" failures.
+            if (station.m_areaMarker == null)
+            {
+                return;
+            }
+
+            CircleProjector projector = station.m_areaMarker.GetComponent<CircleProjector>();
+            if (projector == null)
+            {
+                return;
+            }
+
+            projector.m_radius = range;
+            // Cap segment count so unlimited range doesn't spawn hundreds of thousands of segments.
+            float visualRadius = Math.Min(range, 200f);
+            projector.m_nrOfSegments = (int)Math.Ceiling(Math.Max(5f, 4f * visualRadius));
         }
 
         public static float GetStationRange(string stationName)
         {
-            KeyValuePair<string, float> stationNameRangePair = stationRanges.Find(station => station.Key == stationName);
-
-            if (stationNameRangePair.Equals(default(KeyValuePair<string, float>)))
+            if (!stationRanges.TryGetValue(stationName, out ConfigEntry<float> entry))
             {
-                stationNameRangePair = BindStationRange(stationName);
+                // Auto-discovered stations (cauldron, FoP, etc.): default to vanilla, not unlimited.
+                entry = BindStationRange(stationName, VanillaRange);
             }
 
-            return stationNameRangePair.Value;
+            return entry.Value;
         }
 
-        public static KeyValuePair<string, float> BindStationRange(string stationName)
+        public static ConfigEntry<float> BindStationRange(string stationName, float defaultRange)
         {
-            KeyValuePair<string, float> stationNameRangePair = new KeyValuePair<string, float>(
+            ConfigEntry<float> entry = config.Bind(
+                "CraftingStationRange",
                 stationName,
-                Math.Abs(config.Bind(
-                    "CraftingStationRange", 
-                    stationName, 
-                    (float) 0.0, 
-                    "This crafting stations range."
-                ).Value)
+                defaultRange,
+                "Station build range. -1 = vanilla (do not modify), 0 = unlimited, >0 = custom range."
             );
 
-            stationRanges.Add(stationNameRangePair);
-
-            return stationNameRangePair;
+            stationRanges[stationName] = entry;
+            return entry;
         }
     }
 }
